@@ -1,8 +1,7 @@
 const dashboardService = require("../services/dashboardService");
 
-const getUserId = (req) => {
-    return req.user?.id || req.query?.userId || req.body?.userId || "550e8400-e29b-41d4-a716-446655440000";
-};
+
+const getUserId = (req) => req.user.userId;
 
 const getCards = async (req, res) => {
     try {
