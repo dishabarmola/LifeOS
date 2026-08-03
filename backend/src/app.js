@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const authRoutes = require('./routes/authRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
+const eventRoutes = require('./routes/eventRoutes');
 const { protect } = require('./middleware/authMiddleware');
 // protect is imported from middleware to add the auth nd userId in the other api endpoints 
 const app = express();
@@ -21,6 +22,7 @@ app.use('/auth', authRoutes);
 
 // Protected routes
 app.use('/dashboard', protect, dashboardRoutes);
+app.use('/events', protect, eventRoutes);
 
 app.get('/', (req, res) => {
   res.json({
