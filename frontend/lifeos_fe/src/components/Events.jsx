@@ -1,717 +1,155 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import api from '../utils/api';
 
-const Events = ({ upcomingEvents, setUpcomingEvents, todayCalendar, setTodayCalendar }) => {
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [selectedEvent, setSelectedEvent] = useState(null);
+const EMPTY_FORM = {
+  title: '',
+  description: '',
+  type: 'personal',
+  startDate: '',
+  endDate: '',
+  location: '',
+  priority: 'medium',
+  status: 'upcoming',
+  reminder: false,
+  notes: '',
+};
 
-  // Form states
-  const [title, setTitle] = useState('');
-  const [type, setType] = useState('work'); // meeting, govt, bank, work
-  const [date, setDate] = useState('');
-  const [location, setLocation] = useState('');
-  const [priority, setPriority] = useState('medium'); // low, medium, high
-  const [status, setStatus] = useState('upcoming'); // upcoming, done, missed
-  const [documentsNeeded, setDocumentsNeeded] = useState([]);
-  const [newDoc, setNewDoc] = useState('');
-  const [notes, setNotes] = useState('');
-  const [reminder, setReminder] = useState(false);
+const TYPE_LABELS = {
+  personal: 'Personal', work: 'Work', academic: 'Academic', health: 'Health',
+  government: 'Government', other: 'Other',
+};
 
-  // Filter states
-  const [filterType, setFilterType] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterPriority, setFilterPriority] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState('grid'); // grid, calendar
+const STATUS_LABELS = { upcoming: 'Upcoming', completed: 'Completed', cancelled: 'Cancelled' };
+const inputClass = 'w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-white';
+const labelClass = 'mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-400';
 
-  const handleAddDoc = () => {
-    if (newDoc.trim() && !documentsNeeded.includes(newDoc.trim())) {
-      setDocumentsNeeded([...documentsNeeded, newDoc.trim()]);
-      setNewDoc('');
-    }
-  };
+const toLocalInputValue = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+};
 
-  const handleRemoveDoc = (docToRemove) => {
-    setDocumentsNeeded(documentsNeeded.filter(d => d !== docToRemove));
-  };
+const formatDate = (value) => value
+  ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  : 'No date set';
 
-  const resetForm = () => {
-    setTitle('');
-    setType('work');
-    setDate('');
-    setLocation('');
-    setPriority('medium');
-    setStatus('upcoming');
-    setDocumentsNeeded([]);
-    setNewDoc('');
-    setNotes('');
-    setReminder(false);
-  };
+const eventToForm = (event) => ({
+  title: event.title || '',
+  description: event.description || '',
+  type: event.type || 'personal',
+  startDate: toLocalInputValue(event.startDate),
+  endDate: toLocalInputValue(event.endDate),
+  location: event.location || '',
+  priority: event.priority || 'medium',
+  status: event.status || 'upcoming',
+  reminder: Boolean(event.reminder),
+  notes: event.notes || '',
+});
 
-  const handleSubmitAdd = (e) => {
-    e.preventDefault();
-    const eventDate = date || new Date().toISOString().split('T')[0];
-    const dateObj = new Date(eventDate);
-    const day = dateObj.getDate().toString();
-    const month = dateObj.toLocaleString('default', { month: 'short' }).toUpperCase();
-    
-    const newEvent = {
-      id: Date.now(),
-      title,
-      type,
-      date: eventDate,
-      day,
-      month,
-      location,
-      priority,
-      status,
-      documentsNeeded,
-      notes,
-      reminder,
-      color: priority === 'high' ? 'purple' : (priority === 'medium' ? 'orange' : 'green')
-    };
+const formToPayload = (form) => ({
+  ...form,
+  startDate: new Date(form.startDate).toISOString(),
+  endDate: form.endDate ? new Date(form.endDate).toISOString() : undefined,
+});
 
-    setUpcomingEvents([...upcomingEvents, newEvent]);
-
-    // Also sync to Today's Calendar if it's today
-    const todayStr = new Date().toISOString().split('T')[0];
-    if (eventDate === todayStr) {
-      const newCalItem = {
-        id: newEvent.id,
-        time: "09:00 AM", // default morning
-        title: newEvent.title,
-        category: newEvent.priority === 'high' ? 'High' : 'Academic',
-        sub: newEvent.location || "Office Meeting",
-        color: newEvent.color
-      };
-      setTodayCalendar([...todayCalendar, newCalItem]);
-    }
-
-    setIsAddModalOpen(false);
-    resetForm();
-  };
-
-  const handleEditClick = (event) => {
-    setSelectedEvent(event);
-    setTitle(event.title);
-    setType(event.type || 'work');
-    setDate(event.date || '');
-    setLocation(event.location || '');
-    setPriority(event.priority || 'medium');
-    setStatus(event.status || 'upcoming');
-    setDocumentsNeeded(event.documentsNeeded || []);
-    setNotes(event.notes || '');
-    setReminder(event.reminder || false);
-    setIsEditModalOpen(true);
-  };
-
-  const handleSubmitEdit = (e) => {
-    e.preventDefault();
-    const updatedEvents = upcomingEvents.map(evt => {
-      if (evt.id === selectedEvent.id) {
-        const dateObj = new Date(date);
-        const day = dateObj.getDate().toString();
-        const month = dateObj.toLocaleString('default', { month: 'short' }).toUpperCase();
-        return {
-          ...evt,
-          title,
-          type,
-          date,
-          day,
-          month,
-          location,
-          priority,
-          status,
-          documentsNeeded,
-          notes,
-          reminder,
-          color: priority === 'high' ? 'purple' : (priority === 'medium' ? 'orange' : 'green')
-        };
-      }
-      return evt;
-    });
-
-    setUpcomingEvents(updatedEvents);
-    setIsEditModalOpen(false);
-    resetForm();
-    setSelectedEvent(null);
-  };
-
-  const handleDelete = (eventId) => {
-    if (window.confirm("Are you sure you want to delete this event?")) {
-      setUpcomingEvents(upcomingEvents.filter(e => e.id !== eventId));
-      setTodayCalendar(todayCalendar.filter(c => c.id !== eventId));
-    }
-  };
-
-  const toggleStatus = (eventId, nextStatus) => {
-    setUpcomingEvents(prev => prev.map(e => e.id === eventId ? { ...e, status: nextStatus } : e));
-  };
-
-  // Filters logic
-  const filteredEvents = upcomingEvents.filter(e => {
-    const matchesSearch = e.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (e.location || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (e.notes || '').toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesType = filterType === 'all' || e.type === filterType;
-    const matchesStatus = filterStatus === 'all' || e.status === filterStatus;
-    const matchesPriority = filterPriority === 'all' || e.priority === filterPriority;
-    return matchesSearch && matchesType && matchesStatus && matchesPriority;
-  });
-
-  const countPendingDocs = filteredEvents.reduce((acc, e) => acc + (e.documentsNeeded?.length || 0), 0);
-
-  // Simplified calendar grid render (July 2026 example)
-  const renderCalendar = () => {
-    const daysInMonth = 31;
-    const calendarGrid = [];
-    
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateString = `2026-07-${day.toString().padStart(2, '0')}`;
-      const dayEvents = upcomingEvents.filter(e => e.date === dateString);
-      
-      calendarGrid.push(
-        <div key={day} className="min-h-[100px] border border-slate-100 dark:border-slate-800 p-2 bg-white dark:bg-slate-900 flex flex-col gap-1.5 transition-colors hover:bg-slate-50 dark:hover:bg-slate-850">
-          <span className="font-semibold text-xs text-slate-400">{day}</span>
-          <div className="flex-1 overflow-y-auto flex flex-col gap-1">
-            {dayEvents.map(evt => (
-              <div 
-                key={evt.id}
-                onClick={() => handleEditClick(evt)}
-                className={`text-[10px] font-bold px-1.5 py-0.5 rounded truncate cursor-pointer ${
-                  evt.status === 'done' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 line-through' :
-                  evt.status === 'missed' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-400' :
-                  'bg-violet-100 text-violet-800 dark:bg-violet-950/40 dark:text-violet-400'
-                }`}
-              >
-                {evt.title}
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    }
-    return <div className="grid grid-cols-7 gap-1 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800">{calendarGrid}</div>;
-  };
+function EventForm({ form, onChange, onSubmit, saving, submitLabel }) {
+  const field = (name) => (event) => onChange({ ...form, [name]: event.target.value });
 
   return (
-    <div className="flex flex-col gap-8 w-full">
-      
-      {/* Header controls */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-slate-950 dark:text-white">Official Events</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mt-1">Track appointments, meetings, government audits, bank visits, and required documentation.</p>
-        </div>
-        <div className="flex gap-2">
-          {/* View toggle */}
-          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-            <button 
-              onClick={() => setViewMode('grid')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${viewMode === 'grid' ? 'bg-white dark:bg-slate-900 text-violet-600 shadow-sm' : 'text-slate-500'}`}
-            >
-              List Grid
-            </button>
-            <button 
-              onClick={() => setViewMode('calendar')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${viewMode === 'calendar' ? 'bg-white dark:bg-slate-900 text-violet-600 shadow-sm' : 'text-slate-500'}`}
-            >
-              Calendar View
-            </button>
-          </div>
-          <button 
-            onClick={() => { resetForm(); setIsAddModalOpen(true); }}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs px-5 py-3 rounded-xl shadow-md shadow-indigo-600/10 transition-all hover:scale-102"
-          >
-            + Create Event
-          </button>
-        </div>
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
+      <div>
+        <label className={labelClass}>Event title</label>
+        <input required value={form.title} onChange={field('title')} className={inputClass} placeholder="e.g. Project review" />
       </div>
-
-      {/* Filter and stats row */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        
-        {/* Left filters */}
-        <div className="lg:col-span-1 bg-white dark:bg-[#121324] border border-slate-100 dark:border-slate-800/80 rounded-2xl p-6 flex flex-col gap-6 shadow-sm">
-          <div>
-            <h3 className="font-bold text-sm text-slate-900 dark:text-white">Filter Events</h3>
-            <p className="text-xs text-slate-400 mt-0.5">Narrow down official entries</p>
-          </div>
-
-          <div className="flex flex-col gap-4">
-            
-            {/* Search */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Search</label>
-              <input 
-                type="text" 
-                placeholder="Search events..." 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-3.5 py-2 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-violet-500/20"
-              />
-            </div>
-
-            {/* Type filter */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Event Type</label>
-              <select 
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-3.5 py-2 rounded-xl text-xs focus:outline-none"
-              >
-                <option value="all">All Types</option>
-                <option value="meeting">Meeting</option>
-                <option value="govt">Government</option>
-                <option value="bank">Banking</option>
-                <option value="work">Work Task</option>
-              </select>
-            </div>
-
-            {/* Status filter */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Status</label>
-              <select 
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-3.5 py-2 rounded-xl text-xs focus:outline-none"
-              >
-                <option value="all">All Statuses</option>
-                <option value="upcoming">Upcoming</option>
-                <option value="done">Completed</option>
-                <option value="missed">Missed</option>
-              </select>
-            </div>
-
-            {/* Priority filter */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Priority</label>
-              <select 
-                value={filterPriority}
-                onChange={(e) => setFilterPriority(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-3.5 py-2 rounded-xl text-xs focus:outline-none"
-              >
-                <option value="all">All Priorities</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-
-          </div>
-
-          {/* Alert / Document box */}
-          <div className="p-4 rounded-xl bg-orange-500/5 border border-orange-500/10 flex flex-col gap-1 mt-2">
-            <span className="text-[10px] font-bold text-orange-600 uppercase tracking-wider">Documents Required</span>
-            <span className="text-2xl font-black text-slate-900 dark:text-white">{countPendingDocs} items</span>
-            <span className="text-[10px] text-slate-400 font-semibold mt-0.5">Need preparation beforehand</span>
-          </div>
-
-        </div>
-
-        {/* Right cards list or Calendar */}
-        <div className="lg:col-span-3 flex flex-col gap-4">
-          
-          {viewMode === 'calendar' ? (
-            renderCalendar()
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {filteredEvents.length === 0 ? (
-                <div className="col-span-2 text-center py-20 bg-white dark:bg-[#121324] border border-slate-100 dark:border-slate-800/80 rounded-2xl">
-                  <p className="text-slate-400 text-sm font-semibold">No events match the filter criteria</p>
-                  <button 
-                    onClick={() => { setSearchQuery(''); setFilterStatus('all'); setFilterType('all'); setFilterPriority('all'); }} 
-                    className="text-indigo-600 dark:text-indigo-400 hover:underline font-bold text-xs mt-2"
-                  >
-                    Clear Filters
-                  </button>
-                </div>
-              ) : (
-                filteredEvents.map(event => (
-                  <div 
-                    key={event.id}
-                    className={`bg-white dark:bg-[#121324] border border-slate-100 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm flex flex-col justify-between gap-4 group transition-all hover:shadow-md ${
-                      event.status === 'done' ? 'opacity-85' : ''
-                    }`}
-                  >
-                    
-                    {/* Header */}
-                    <div className="flex items-start gap-4">
-                      
-                      {/* Date Badge */}
-                      <div className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center text-center font-bold shadow-sm shrink-0 ${
-                        event.priority === 'high' ? 'bg-violet-50 dark:bg-violet-950/40 text-violet-600' :
-                        event.priority === 'medium' ? 'bg-orange-50 dark:bg-orange-950/40 text-orange-600' :
-                        'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600'
-                      }`}>
-                        <span className="text-lg leading-none">{event.day || "27"}</span>
-                        <span className="text-[9px] mt-0.5 leading-none">{event.month || "JUL"}</span>
-                      </div>
-
-                      {/* Details */}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between">
-                          <h4 className={`text-sm font-bold text-slate-900 dark:text-white truncate ${event.status === 'done' ? 'line-through text-slate-400' : ''}`}>
-                            {event.title}
-                          </h4>
-                        </div>
-                        <p className="text-[11px] text-slate-400 dark:text-slate-500 font-semibold mt-0.5">
-                          ⏰ {event.time || "09:00 AM"} {event.location ? `• 📍 ${event.location}` : ''}
-                        </p>
-                      </div>
-
-                    </div>
-
-                    {/* Notes & Description */}
-                    {event.notes && (
-                      <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/50 p-2.5 rounded-lg">
-                        {event.notes}
-                      </p>
-                    )}
-
-                    {/* Required Documents checklist */}
-                    {event.documentsNeeded && event.documentsNeeded.length > 0 && (
-                      <div className="flex flex-col gap-1.5 bg-slate-50/50 dark:bg-slate-900/30 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800/60">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Documents Check</span>
-                        <div className="flex flex-wrap gap-1.5 mt-1">
-                          {event.documentsNeeded.map((doc, idx) => (
-                            <span 
-                              key={idx} 
-                              className="bg-white dark:bg-slate-800 px-2 py-0.5 rounded text-[10px] font-bold text-slate-600 dark:text-slate-400 border border-slate-100 dark:border-slate-700/50 flex items-center gap-1 cursor-pointer hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20"
-                            >
-                              📁 {doc}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Action controls footer */}
-                    <div className="flex items-center justify-between pt-3 border-t border-slate-50 dark:border-slate-800/60 mt-1">
-                      
-                      {/* Quick status change select */}
-                      <select 
-                        value={event.status}
-                        onChange={(e) => toggleStatus(event.id, e.target.value)}
-                        className={`text-[10px] font-bold px-2 py-1 rounded border focus:outline-none ${
-                          event.status === 'done' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
-                          event.status === 'missed' ? 'bg-rose-50 border-rose-200 text-rose-700' :
-                          'bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700 text-slate-700 dark:text-slate-300'
-                        }`}
-                      >
-                        <option value="upcoming">Upcoming</option>
-                        <option value="done">Completed</option>
-                        <option value="missed">Missed</option>
-                      </select>
-
-                      <div className="flex gap-2">
-                        <button 
-                          onClick={() => handleEditClick(event)}
-                          className="text-xs text-indigo-600 dark:text-indigo-400 font-bold hover:underline"
-                        >
-                          Edit
-                        </button>
-                        <button 
-                          onClick={() => handleDelete(event.id)}
-                          className="text-xs text-rose-600 font-bold hover:underline"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
-        </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div><label className={labelClass}>Type</label><select value={form.type} onChange={field('type')} className={inputClass}>{Object.entries(TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+        <div><label className={labelClass}>Priority</label><select value={form.priority} onChange={field('priority')} className={inputClass}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
       </div>
-
-      {/* ======================================================== */}
-      {/* ================= MODALS SYSTEM ======================== */}
-      {/* ======================================================== */}
-
-      {/* Add Event Modal */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#121324] border border-slate-100 dark:border-slate-800/80 rounded-2xl w-full max-w-md shadow-2xl p-6.5 flex flex-col gap-4 animate-scale-up">
-            
-            <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="font-bold text-lg text-slate-950 dark:text-white">Create Official Event</h3>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600 font-semibold text-base focus:outline-none">✕</button>
-            </div>
-
-            <form onSubmit={handleSubmitAdd} className="flex flex-col gap-4">
-              
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Event Title</label>
-                <input 
-                  type="text" 
-                  value={title} 
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. Income Tax Office Audit"
-                  className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-4 py-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Event Type</label>
-                  <select 
-                    value={type} 
-                    onChange={(e) => setType(e.target.value)}
-                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-4 py-2.5 rounded-lg text-sm focus:outline-none"
-                  >
-                    <option value="work">Work Meeting</option>
-                    <option value="govt">Government Office</option>
-                    <option value="bank">Banking Outing</option>
-                    <option value="meeting">General Meeting</option>
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Priority</label>
-                  <select 
-                    value={priority} 
-                    onChange={(e) => setPriority(e.target.value)}
-                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-4 py-2.5 rounded-lg text-sm focus:outline-none"
-                  >
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Date</label>
-                  <input 
-                    type="date" 
-                    value={date} 
-                    onChange={(e) => setDate(e.target.value)}
-                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-4 py-2.5 rounded-lg text-sm focus:outline-none"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Location</label>
-                  <input 
-                    type="text" 
-                    value={location} 
-                    onChange={(e) => setLocation(e.target.value)}
-                    placeholder="e.g. Connaught Place"
-                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-4 py-2.5 rounded-lg text-sm focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Notes / Errands details</label>
-                <textarea 
-                  value={notes} 
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Notes, steps needed..."
-                  rows="2"
-                  className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-4 py-2.5 rounded-lg text-sm focus:outline-none"
-                />
-              </div>
-
-              {/* Documents Checklist Selector */}
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Documents Required</label>
-                <div className="flex gap-2">
-                  <input 
-                    type="text" 
-                    value={newDoc} 
-                    onChange={(e) => setNewDoc(e.target.value)}
-                    placeholder="e.g. Aadhaar card"
-                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-4 py-2 rounded-lg text-sm flex-1 focus:outline-none"
-                  />
-                  <button 
-                    type="button" 
-                    onClick={handleAddDoc}
-                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-4 py-2 rounded-lg"
-                  >
-                    Add
-                  </button>
-                </div>
-                {documentsNeeded.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-2 p-2 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-800/80">
-                    {documentsNeeded.map((doc, idx) => (
-                      <span key={idx} className="bg-slate-200 dark:bg-slate-800 text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1.5">
-                        {doc}
-                        <button type="button" onClick={() => handleRemoveDoc(doc)} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center gap-3 py-1">
-                <input 
-                  type="checkbox" 
-                  checked={reminder} 
-                  onChange={(e) => setReminder(e.target.checked)}
-                  id="add-evt-reminder"
-                  className="w-4 h-4 accent-indigo-600"
-                />
-                <label htmlFor="add-evt-reminder" className="text-xs font-bold text-slate-500 cursor-pointer">Enable email/system reminder alerts</label>
-              </div>
-
-              <button 
-                type="submit" 
-                className="bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold text-xs py-3.5 rounded-lg hover:opacity-95 shadow-md shadow-violet-500/10 mt-2 transition-all"
-              >
-                Create Event
-              </button>
-
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Event Modal */}
-      {isEditModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#121324] border border-slate-100 dark:border-slate-800/80 rounded-2xl w-full max-w-md shadow-2xl p-6.5 flex flex-col gap-4 animate-scale-up">
-            
-            <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="font-bold text-lg text-slate-950 dark:text-white">Edit Event Details</h3>
-              <button onClick={() => { setIsEditModalOpen(false); setSelectedEvent(null); }} className="text-slate-400 hover:text-slate-600 font-semibold text-base focus:outline-none">✕</button>
-            </div>
-
-            <form onSubmit={handleSubmitEdit} className="flex flex-col gap-4">
-              
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Event Title</label>
-                <input 
-                  type="text" 
-                  value={title} 
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-4 py-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Event Type</label>
-                  <select 
-                    value={type} 
-                    onChange={(e) => setType(e.target.value)}
-                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-4 py-2.5 rounded-lg text-sm focus:outline-none"
-                  >
-                    <option value="work">Work Meeting</option>
-                    <option value="govt">Government Office</option>
-                    <option value="bank">Banking Outing</option>
-                    <option value="meeting">General Meeting</option>
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Priority</label>
-                  <select 
-                    value={priority} 
-                    onChange={(e) => setPriority(e.target.value)}
-                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-4 py-2.5 rounded-lg text-sm focus:outline-none"
-                  >
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Date</label>
-                  <input 
-                    type="date" 
-                    value={date} 
-                    onChange={(e) => setDate(e.target.value)}
-                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-4 py-2.5 rounded-lg text-sm focus:outline-none"
-                    required
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Location</label>
-                  <input 
-                    type="text" 
-                    value={location} 
-                    onChange={(e) => setLocation(e.target.value)}
-                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-4 py-2.5 rounded-lg text-sm focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Notes / Errands details</label>
-                <textarea 
-                  value={notes} 
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows="2"
-                  className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-4 py-2.5 rounded-lg text-sm focus:outline-none"
-                />
-              </div>
-
-              {/* Documents Checklist Selector */}
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Documents Required</label>
-                <div className="flex gap-2">
-                  <input 
-                    type="text" 
-                    value={newDoc} 
-                    onChange={(e) => setNewDoc(e.target.value)}
-                    placeholder="Aadhaar card"
-                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-4 py-2 rounded-lg text-sm flex-1 focus:outline-none"
-                  />
-                  <button 
-                    type="button" 
-                    onClick={handleAddDoc}
-                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-4 py-2 rounded-lg"
-                  >
-                    Add
-                  </button>
-                </div>
-                {documentsNeeded.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-2 p-2 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-800/80">
-                    {documentsNeeded.map((doc, idx) => (
-                      <span key={idx} className="bg-slate-200 dark:bg-slate-800 text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1.5">
-                        {doc}
-                        <button type="button" onClick={() => handleRemoveDoc(doc)} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center gap-3 py-1">
-                <input 
-                  type="checkbox" 
-                  checked={reminder} 
-                  onChange={(e) => setReminder(e.target.checked)}
-                  id="edit-evt-reminder"
-                  className="w-4 h-4 accent-indigo-600"
-                />
-                <label htmlFor="edit-evt-reminder" className="text-xs font-bold text-slate-500 cursor-pointer">Enable email/system reminder alerts</label>
-              </div>
-
-              <button 
-                type="submit" 
-                className="bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold text-xs py-3.5 rounded-lg hover:opacity-95 shadow-md shadow-violet-500/10 mt-2 transition-all"
-              >
-                Save Changes
-              </button>
-
-            </form>
-          </div>
-        </div>
-      )}
-
-    </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div><label className={labelClass}>Starts</label><input required type="datetime-local" value={form.startDate} onChange={field('startDate')} className={inputClass} /></div>
+        <div><label className={labelClass}>Ends <span className="normal-case">(optional)</span></label><input type="datetime-local" value={form.endDate} onChange={field('endDate')} className={inputClass} /></div>
+      </div>
+      <div><label className={labelClass}>Location</label><input value={form.location} onChange={field('location')} className={inputClass} placeholder="e.g. Office or Zoom" /></div>
+      <div><label className={labelClass}>Description</label><textarea value={form.description} onChange={field('description')} className={`${inputClass} min-h-20`} placeholder="What is this event about?" /></div>
+      <div><label className={labelClass}>Notes</label><textarea value={form.notes} onChange={field('notes')} className={`${inputClass} min-h-20`} placeholder="Anything you need to remember" /></div>
+      <div className="flex items-center gap-3"><input id="event-reminder" type="checkbox" checked={form.reminder} onChange={(event) => onChange({ ...form, reminder: event.target.checked })} className="h-4 w-4 accent-violet-600" /><label htmlFor="event-reminder" className="text-sm text-slate-600 dark:text-slate-300">Enable reminder</label></div>
+      <button disabled={saving} type="submit" className="rounded-xl bg-violet-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-60">{saving ? 'Saving…' : submitLabel}</button>
+    </form>
   );
+}
+
+function Modal({ title, children, onClose }) {
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => event.target === event.currentTarget && onClose()}><div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl dark:bg-[#121324]"><div className="mb-5 flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800"><h2 className="text-lg font-bold text-slate-950 dark:text-white">{title}</h2><button onClick={onClose} className="rounded-lg px-2 py-1 text-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800" aria-label="Close">×</button></div>{children}</div></div>;
+}
+
+const Events = () => {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [modal, setModal] = useState(null);
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+
+  const loadEvents = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await api.get('/events');
+      setEvents(response.data || []);
+    } catch (requestError) {
+      setError(requestError.message || 'Unable to load events.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadEvents(); }, []);
+
+  const visibleEvents = useMemo(() => events.filter((event) => {
+    const query = search.toLowerCase();
+    const matchesSearch = !query || [event.title, event.location, event.description, event.notes].some((value) => (value || '').toLowerCase().includes(query));
+    return matchesSearch && (filterStatus === 'all' || event.status === filterStatus);
+  }), [events, search, filterStatus]);
+
+  const closeModal = () => { setModal(null); setSelectedEvent(null); setForm(EMPTY_FORM); };
+  const openAdd = () => { setForm(EMPTY_FORM); setModal('add'); };
+  const openView = (event) => { setSelectedEvent(event); setModal('view'); };
+  const openEdit = (event) => { setSelectedEvent(event); setForm(eventToForm(event)); setModal('edit'); };
+
+  const saveEvent = async (event) => {
+    event.preventDefault();
+    setSaving(true); setError('');
+    try {
+      const payload = formToPayload(form);
+      if (modal === 'add') await api.post('/events', payload);
+      else await api.put(`/events/${selectedEvent._id}`, payload);
+      await loadEvents();
+      closeModal();
+    } catch (requestError) {
+      setError(requestError.message || 'Unable to save event.');
+    } finally { setSaving(false); }
+  };
+
+  const deleteEvent = async (event) => {
+    if (!window.confirm(`Delete “${event.title}”? This cannot be undone.`)) return;
+    setError('');
+    try { await api.delete(`/events/${event._id}`); setEvents((current) => current.filter((item) => item._id !== event._id)); if (selectedEvent?._id === event._id) closeModal(); }
+    catch (requestError) { setError(requestError.message || 'Unable to delete event.'); }
+  };
+
+  return <div className="w-full p-5 sm:p-8"><div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><h1 className="text-3xl font-extrabold tracking-tight text-slate-950 dark:text-white">Events</h1><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Keep your appointments and important dates in one place.</p></div><button onClick={openAdd} className="rounded-xl bg-violet-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-violet-600/20 hover:bg-violet-500">+ Create event</button></div>
+    {error && <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss error">×</button></div>}
+    <div className="mb-5 flex flex-col gap-3 sm:flex-row"><input value={search} onChange={(event) => setSearch(event.target.value)} className={`${inputClass} flex-1`} placeholder="Search events…" /><select value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)} className={`${inputClass} sm:w-44`}><option value="all">All statuses</option>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+    {loading ? <p className="py-16 text-center text-sm text-slate-500">Loading events…</p> : visibleEvents.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-300 py-16 text-center dark:border-slate-700"><p className="font-semibold text-slate-600 dark:text-slate-300">No events found.</p><button onClick={openAdd} className="mt-3 text-sm font-bold text-violet-600 hover:underline">Create your first event</button></div> : <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">{visibleEvents.map((event) => <article key={event._id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md dark:border-slate-800 dark:bg-[#121324]"><div className="flex justify-between gap-3"><div><div className="mb-2 flex flex-wrap gap-2"><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">{TYPE_LABELS[event.type] || event.type}</span><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{STATUS_LABELS[event.status] || event.status}</span></div><h2 className="text-lg font-bold text-slate-900 dark:text-white">{event.title}</h2><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{formatDate(event.startDate)}{event.location ? ` · ${event.location}` : ''}</p></div><span className={`h-fit rounded-lg px-2 py-1 text-xs font-bold ${event.priority === 'high' ? 'bg-rose-100 text-rose-700' : event.priority === 'low' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{event.priority}</span></div>{event.description && <p className="mt-4 line-clamp-2 text-sm text-slate-600 dark:text-slate-300">{event.description}</p>}<div className="mt-5 flex gap-3 border-t border-slate-100 pt-4 text-sm font-bold dark:border-slate-800"><button onClick={() => openView(event)} className="text-slate-600 hover:text-violet-600 dark:text-slate-300">View</button><button onClick={() => openEdit(event)} className="text-violet-600 hover:underline">Edit</button><button onClick={() => deleteEvent(event)} className="text-rose-600 hover:underline">Delete</button></div></article>)}</div>}
+    {modal === 'add' && <Modal title="Create event" onClose={closeModal}><EventForm form={form} onChange={setForm} onSubmit={saveEvent} saving={saving} submitLabel="Create event" /></Modal>}
+    {modal === 'edit' && <Modal title="Edit event" onClose={closeModal}><EventForm form={form} onChange={setForm} onSubmit={saveEvent} saving={saving} submitLabel="Save changes" /></Modal>}
+    {modal === 'view' && selectedEvent && <Modal title="Event details" onClose={closeModal}><div className="space-y-4 text-sm"><div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">When</p><p className="mt-1 text-slate-800 dark:text-slate-200">{formatDate(selectedEvent.startDate)}{selectedEvent.endDate ? ` – ${formatDate(selectedEvent.endDate)}` : ''}</p></div><div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Type and status</p><p className="mt-1 text-slate-800 dark:text-slate-200">{TYPE_LABELS[selectedEvent.type]} · {STATUS_LABELS[selectedEvent.status]} · {selectedEvent.priority} priority</p></div>{selectedEvent.location && <div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Location</p><p className="mt-1 text-slate-800 dark:text-slate-200">{selectedEvent.location}</p></div>}{selectedEvent.description && <div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Description</p><p className="mt-1 whitespace-pre-wrap text-slate-800 dark:text-slate-200">{selectedEvent.description}</p></div>}{selectedEvent.notes && <div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Notes</p><p className="mt-1 whitespace-pre-wrap text-slate-800 dark:text-slate-200">{selectedEvent.notes}</p></div>}<div className="flex gap-3 pt-2"><button onClick={() => openEdit(selectedEvent)} className="rounded-xl bg-violet-600 px-4 py-2.5 font-bold text-white hover:bg-violet-500">Edit event</button><button onClick={() => deleteEvent(selectedEvent)} className="rounded-xl border border-rose-200 px-4 py-2.5 font-bold text-rose-600 hover:bg-rose-50">Delete</button></div></div></Modal>}
+  </div>;
 };
 
 export default Events;
