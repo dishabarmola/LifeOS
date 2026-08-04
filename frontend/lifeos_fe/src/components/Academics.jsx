@@ -1,32 +1,15 @@
 import React from 'react';
-import { BookOpenCheck, NotebookPen } from 'lucide-react';
+import CrudCollection, { localDate } from './CrudCollection';
 
-const Academics = () => {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Academics</h1>
-        <p className="mt-2 text-sm text-slate-500">Stay on top of classes, assignments, and study goals.</p>
-      </div>
+const options = (values) => values.map((value) => ({ value, label: value.replace(/-/g, ' ') }));
+const fields = [
+  { name: 'subject', label: 'Subject', required: true }, { name: 'title', label: 'Task title', required: true },
+  { name: 'type', label: 'Type', type: 'select', options: options(['assignment', 'exam', 'project', 'study', 'revision', 'other']) },
+  { name: 'deadline', label: 'Deadline', type: 'datetime-local' }, { name: 'status', label: 'Status', type: 'select', options: options(['not-started', 'in-progress', 'completed']) },
+  { name: 'priority', label: 'Priority', type: 'select', options: options(['low', 'medium', 'high']) },
+  { name: 'description', label: 'Description', type: 'textarea', fullWidth: true }, { name: 'notes', label: 'Notes', type: 'textarea', fullWidth: true },
+];
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 p-5">
-          <div className="mb-3 flex items-center gap-2 text-violet-600">
-            <NotebookPen size={18} />
-            <h2 className="font-semibold">Upcoming tasks</h2>
-          </div>
-          <p className="text-sm text-slate-600">DSA revision, DBMS sprint, and OS practice session.</p>
-        </div>
-        <div className="rounded-2xl border border-slate-200 p-5">
-          <div className="mb-3 flex items-center gap-2 text-emerald-600">
-            <BookOpenCheck size={18} />
-            <h2 className="font-semibold">Focus streak</h2>
-          </div>
-          <p className="text-sm text-slate-600">You are 4 days into a productive study streak.</p>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default Academics;
+export default function Academics() {
+  return <CrudCollection title="Academics" description="Track assignments, exams, projects, and study goals." endpoint="/academics" fields={fields} cardTitle={(item) => item.title} cardMeta={(item) => `${item.subject} · ${item.type} · ${item.status}${item.deadline ? ` · due ${new Date(item.deadline).toLocaleDateString()}` : ''}`} cardDetails={(item) => item.description || item.notes} fromRecord={(item) => ({ ...item, deadline: localDate(item.deadline) })} toPayload={(form) => ({ ...form, deadline: form.deadline ? new Date(form.deadline).toISOString() : undefined })} />;
+}

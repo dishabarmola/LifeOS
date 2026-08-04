@@ -5,6 +5,9 @@ const cors = require('cors');
 const authRoutes = require('./routes/authRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const eventRoutes = require('./routes/eventRoutes');
+const planRoutes = require('./routes/planRoutes');
+const academicRoutes = require('./routes/academicRoutes');
+const healthRoutes = require('./routes/healthRoutes');
 const { protect } = require('./middleware/authMiddleware');
 // protect is imported from middleware to add the auth nd userId in the other api endpoints 
 const app = express();
@@ -23,6 +26,9 @@ app.use('/auth', authRoutes);
 // Protected routes
 app.use('/dashboard', protect, dashboardRoutes);
 app.use('/events', protect, eventRoutes);
+app.use('/plans', protect, planRoutes);
+app.use('/academics', protect, academicRoutes);
+app.use('/health', protect, healthRoutes);
 
 app.get('/', (req, res) => {
   res.json({
